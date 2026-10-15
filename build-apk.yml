@@ -1,0 +1,67 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      with_skia:
+        description: "Also build Skia (30-60 min first time, cached afterwards) for the full renderer"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      NDK_VERSION: "27.0.12077973"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK components
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-35" "build-tools;35.0.0" "ndk;${NDK_VERSION}" "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      # ── Optional: Skia (full renderer). Without it the APK uses the GLES fallback grid. ──
+      - name: Free disk space (Skia build needs it)
+        if: ${{ inputs.with_skia }}
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+
+      - name: Restore Skia cache
+        if: ${{ inputs.with_skia }}
+        id: skia-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/cpp/third_party/skia
+          key: skia-m126-${{ hashFiles('scripts/build_skia.sh') }}
+
+      - name: Build Skia
+        if: ${{ inputs.with_skia && steps.skia-cache.outputs.cache-hit != 'true' }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          scripts/build_skia.sh
+          # keep only what the app build needs (headers + libs) so the cache stays small
+          cd app/src/main/cpp/third_party
+          mkdir ../skia_keep && cp -r skia/include skia/lib ../skia_keep/
+          rm -rf skia && mv ../skia_keep skia
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: figtab-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
