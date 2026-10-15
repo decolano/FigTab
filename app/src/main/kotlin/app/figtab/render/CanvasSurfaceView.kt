@@ -92,7 +92,7 @@ class CanvasSurfaceView(
         if (e.actionMasked == MotionEvent.ACTION_SCROLL && e.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
             val v = e.getAxisValue(MotionEvent.AXIS_VSCROLL)
             val h = e.getAxisValue(MotionEvent.AXIS_HSCROLL)
-            if (e.isCtrlPressed || e.isMetaPressed) {
+            if ((e.metaState and (android.view.KeyEvent.META_CTRL_ON or android.view.KeyEvent.META_META_ON)) != 0) {
                 viewport.zoomAt(e.x, e.y, Math.pow(1.1, v.toDouble()).toFloat())
             } else {
                 viewport.panBy(h * 48f, v * 48f)
