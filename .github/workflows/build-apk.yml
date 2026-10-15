@@ -47,7 +47,7 @@ jobs:
         if: ${{ inputs.with_skia && steps.skia-cache.outputs.cache-hit != 'true' }}
         run: |
           sudo apt-get update && sudo apt-get install -y ninja-build
-          scripts/build_skia.sh
+          bash scripts/build_skia.sh
           # keep only what the app build needs (headers + libs) so the cache stays small
           cd app/src/main/cpp/third_party
           mkdir ../skia_keep && cp -r skia/include skia/lib ../skia_keep/
