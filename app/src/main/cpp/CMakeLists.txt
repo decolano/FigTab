@@ -39,4 +39,4 @@ if(FIGTAB_HAS_SKIA)
         -Wl,--start-group ${SKIA_LIBS} -Wl,--end-group)
 endif()
 
-target_link_libraries(figtab_native PRIVATE EGL GLESv3 android log)
+target_link_libraries(figtab_native PRIVATE EGL GLESv3 android log jnigraphics)
