@@ -24,7 +24,11 @@ build_abi() {
     is_official_build=true is_component_build=false
     skia_enable_ganesh=true skia_use_gl=true skia_use_vulkan=false
     skia_enable_graphite=false skia_enable_tools=false
-    skia_enable_pdf=false skia_enable_skottie=false"
+        skia_enable_pdf=false skia_enable_skottie=false
+    skia_use_system_freetype2=false skia_use_system_expat=false
+    skia_use_system_harfbuzz=false skia_use_system_icu=false
+    skia_use_system_libjpeg_turbo=false skia_use_system_libpng=false
+    skia_use_system_libwebp=false skia_use_system_zlib=false"
   ninja -C "out/$abi" skia
   mkdir -p "lib/$abi"
   cp "out/$abi"/*.a "lib/$abi/"     # libskia.a plus bundled third-party archives (freetype, etc.)
