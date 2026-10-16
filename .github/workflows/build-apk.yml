@@ -50,9 +50,7 @@ jobs:
           bash scripts/build_skia.sh
           # keep only what the app build needs (headers + libs) so the cache stays small
           cd app/src/main/cpp/third_party
-          mkdir ../skia_keep && cp -r skia/include skia/lib ../skia_keep/
-          rm -rf skia && mv ../skia_keep skia
-
+          mkdir -p ../skia_keep/modules && cp -r skia/include skia/lib ../skia_keep/ && cp -r skia/modules/skcms ../skia_keep/modules/
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
