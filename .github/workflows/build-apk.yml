@@ -33,7 +33,7 @@ jobs:
       # ── Optional: Skia (full renderer). Without it the APK uses the GLES fallback grid. ──
       - name: Free disk space (Skia build needs it)
         if: ${{ inputs.with_skia }}
-        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
 
       - name: Restore Skia cache
         if: ${{ inputs.with_skia }}
