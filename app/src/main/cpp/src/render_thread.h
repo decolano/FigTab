@@ -10,7 +10,7 @@
 
 #if FIGTAB_HAS_SKIA
 #include "include/core/SkSurface.h"
-#include "include/gpu/ganesh/GrDirectContext.h"
+#include "skia_compat.h"
 #include "render_scene.h"
 #endif
 

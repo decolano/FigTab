@@ -8,14 +8,7 @@
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkMatrix.h"
 #include "include/core/SkSurfaceProps.h"
-#include "include/gpu/ganesh/GrBackendSurface.h"
-#include "include/gpu/ganesh/GrTypes.h"
-#include "include/gpu/ganesh/SkSurfaceGanesh.h"
-#include "include/gpu/ganesh/gl/GrGLBackendSurface.h"
-#include "include/gpu/ganesh/gl/GrGLDirectContext.h"
-#include "include/gpu/ganesh/gl/GrGLInterface.h"
-#include "include/gpu/ganesh/gl/GrGLTypes.h"
-#include "include/gpu/ganesh/gl/egl/GrGLMakeEGLInterface.h"
+#include "skia_compat.h"
 #endif
 
 #define TAG "figtab"
@@ -111,8 +104,8 @@ bool RenderThread::initEgl() {
     eglSwapInterval(dpy_, 1);
 
 #if FIGTAB_HAS_SKIA
-    sk_sp<const GrGLInterface> iface = GrGLInterfaces::MakeEGL();
-    grCtx_ = GrDirectContexts::MakeGL(iface);
+    sk_sp<const GrGLInterface> iface = FIGTAB_MAKE_EGL_INTERFACE();
+    grCtx_ = FIGTAB_MAKE_GL_CONTEXT(iface);
     if (!grCtx_) { LOGE("GrDirectContext creation failed"); return false; }
     LOGI("renderer: Skia (Ganesh/GL)");
 #else
@@ -146,7 +139,7 @@ bool RenderThread::ensureSkSurface() {
     GrGLFramebufferInfo fb;
     fb.fFBOID = 0;               // default framebuffer
     fb.fFormat = GL_RGBA8;
-    GrBackendRenderTarget target = GrBackendRenderTargets::MakeGL(width_, height_, /*sampleCnt=*/0, /*stencilBits=*/8, fb);
+    GrBackendRenderTarget target = FIGTAB_MAKE_GL_RT(width_, height_, fb);
     SkSurfaceProps props(0, kRGB_H_SkPixelGeometry);
     skSurface_ = SkSurfaces::WrapBackendRenderTarget(
         grCtx_.get(), target, kBottomLeft_GrSurfaceOrigin, kRGBA_8888_SkColorType, nullptr, &props);
