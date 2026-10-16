@@ -12,7 +12,7 @@ class PatchBuffer(initialCapacity: Int = 64 * 1024) {
 
     fun reset() { buffer.clear() }
 
-    fun ensure(extra: Int) {
+    private fun ensure(extra: Int) {
         if (buffer.remaining() >= extra) return
         var cap = buffer.capacity() * 2
         while (cap - buffer.position() < extra) cap *= 2
@@ -21,6 +21,13 @@ class PatchBuffer(initialCapacity: Int = 64 * 1024) {
         bigger.put(buffer)
         buffer = bigger
     }
+
+    fun putInt(v: Int): PatchBuffer { ensure(4); buffer.putInt(v); return this }
+    fun putLong(v: Long): PatchBuffer { ensure(8); buffer.putLong(v); return this }
+    fun putFloat(v: Float): PatchBuffer { ensure(4); buffer.putFloat(v); return this }
+
+    /** Overwrite an int at an absolute position (used to back-fill op sizes). */
+    fun setInt(position: Int, v: Int) { buffer.putInt(position, v) }
 
     private fun allocate(cap: Int): ByteBuffer = ByteBuffer.allocateDirect(cap).order(ByteOrder.LITTLE_ENDIAN)
 }
