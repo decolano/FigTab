@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstring>
 #include "include/core/SkBlendMode.h"
+#include "include/core/SkBlurTypes.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkImageFilter.h"
 #include "include/core/SkMaskFilter.h"
