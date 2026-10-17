@@ -26,6 +26,8 @@ class PatchBuffer(initialCapacity: Int = 64 * 1024) {
     fun putLong(v: Long): PatchBuffer { ensure(8); buffer.putLong(v); return this }
     fun putFloat(v: Float): PatchBuffer { ensure(4); buffer.putFloat(v); return this }
 
+    fun putBytes(bytes: ByteArray): PatchBuffer { ensure(bytes.size); buffer.put(bytes); return this }
+
     /** Overwrite an int at an absolute position (used to back-fill op sizes). */
     fun setInt(position: Int, v: Int) { buffer.putInt(position, v) }
 

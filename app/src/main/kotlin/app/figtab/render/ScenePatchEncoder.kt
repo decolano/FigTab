@@ -3,12 +3,12 @@ package app.figtab.render
 import app.figtab.domain.scene.*
 
 /**
- * Encodes domain scene state into the binary patch format defined in native scene_patch.h (version 2).
+ * Encodes domain scene state into the binary patch format defined in native scene_patch.h (version 3).
  * Keep this file and scene_patch.h in lock-step.
  */
 object ScenePatchEncoder {
     private const val MAGIC = 0x46545031
-    private const val VERSION = 2
+    private const val VERSION = 3
     private const val OP_UPSERT = 1
     private const val OP_SET_CHILDREN = 3
     private const val OP_SET_ROOTS = 4
@@ -136,6 +136,42 @@ object ScenePatchEncoder {
                 is Effect.LayerBlur -> writeEffect(o, 2, 0, 0f, 0f, e.radius, 0f)
                 is Effect.BackgroundBlur -> writeEffect(o, 3, 0, 0f, 0f, e.radius, 0f)
             }
+        }
+
+        writeText(o, n)
+    }
+
+    private fun writeText(o: PatchBuffer, n: SceneNode) {
+        if (n !is TextNode) { o.putInt(0); return }
+        o.putInt(1)
+        o.putInt(n.autoSize.ordinal)    // AUTO_WIDTH 0, AUTO_HEIGHT 1, FIXED 2
+        o.putInt(n.alignH.ordinal)      // LEFT 0, CENTER 1, RIGHT 2, JUSTIFIED 3 (drawn as left for now)
+        o.putInt(n.alignV.ordinal)      // TOP 0, CENTER 1, BOTTOM 2
+        o.putFloat(n.paragraphSpacing)
+        o.putInt(n.maxLines ?: 0)
+
+        val len = n.characters.length
+        val runs = if (n.runs.isEmpty()) listOf(TextRun(0, len, TextStyle(fontFamily = "sans-serif")))
+                   else n.runs.sortedBy { it.start }
+        val segments = runs.mapNotNull { r ->
+            val s = r.start.coerceIn(0, len)
+            val e = r.end.coerceIn(s, len)
+            if (e > s) r to n.characters.substring(s, e) else null
+        }
+        o.putInt(segments.size)
+        for ((r, text) in segments) {
+            val st = r.style
+            o.putFloat(st.fontSize).putFloat(st.lineHeightPx ?: 0f).putFloat(st.letterSpacingPx)
+            o.putInt(st.fontWeight)
+            o.putInt(if (st.fontStyle.contains("italic", ignoreCase = true)) 1 else 0)
+            o.putInt((if (st.underline) 1 else 0) or (if (st.strikethrough) 2 else 0))
+            val fam = st.fontFamily.toByteArray(Charsets.UTF_8)
+            o.putInt(fam.size).putBytes(fam)
+            val txt = text.toByteArray(Charsets.UTF_8)
+            o.putInt(txt.size).putBytes(txt)
+            val fills = st.fills.filter { it.visible }
+            o.putInt(fills.size)
+            for (p in fills) writePaint(o, p)
         }
     }
 
