@@ -12,12 +12,22 @@ set(SKIA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/skia)
 set(SKIA_LIB_DIR ${SKIA_DIR}/lib/${ANDROID_ABI})
 
 set(FIGTAB_SOURCES src/jni_bridge.cpp src/render_thread.cpp)
+set(FIGTAB_HAS_FONTMGR 0)
 
 if(EXISTS ${SKIA_LIB_DIR}/libskia.a AND EXISTS ${SKIA_DIR}/include/core/SkCanvas.h)
     message(STATUS "figtab: building WITH Skia (${ANDROID_ABI})")
     set(FIGTAB_HAS_SKIA 1)
     list(APPEND FIGTAB_SOURCES src/render_scene.cpp)
     file(GLOB SKIA_LIBS ${SKIA_LIB_DIR}/*.a)
+
+    # Text needs Skia's Android font manager. Only reference it if this libskia.a actually defines it,
+    # so a Skia built without it still links (text is then disabled instead of breaking the build).
+    execute_process(COMMAND grep -q -a "SkFontMgr_New_Android" "${SKIA_LIB_DIR}/libskia.a"
+                    RESULT_VARIABLE FIGTAB_FM_RC OUTPUT_QUIET ERROR_QUIET)
+    if(FIGTAB_FM_RC EQUAL 0)
+        set(FIGTAB_HAS_FONTMGR 1)
+    endif()
+    message(STATUS "figtab: Skia Android font manager available: ${FIGTAB_HAS_FONTMGR}")
 else()
     message(WARNING "figtab: Skia not found for ${ANDROID_ABI}; building GLES fallback renderer. Run scripts/build_skia.sh for the real renderer.")
     set(FIGTAB_HAS_SKIA 0)
@@ -27,7 +37,7 @@ add_library(figtab_native SHARED ${FIGTAB_SOURCES})
 
 target_include_directories(figtab_native PRIVATE src)
 target_compile_options(figtab_native PRIVATE -O2 -fno-exceptions -fno-rtti -Wall -Wextra)
-target_compile_definitions(figtab_native PRIVATE FIGTAB_HAS_SKIA=${FIGTAB_HAS_SKIA})
+target_compile_definitions(figtab_native PRIVATE FIGTAB_HAS_SKIA=${FIGTAB_HAS_SKIA} FIGTAB_HAS_FONTMGR=${FIGTAB_HAS_FONTMGR})
 # Required for devices with 16 KB memory pages (Android 15+); harmless elsewhere.
 target_link_options(figtab_native PRIVATE -Wl,-z,max-page-size=16384)
 
