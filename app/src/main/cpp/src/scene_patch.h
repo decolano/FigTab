@@ -1,7 +1,7 @@
 // Wire format for domain -> render scene updates. Little-endian. Mirrored by ScenePatchEncoder.kt.
 // Bump kPatchVersion on any layout change.
 //
-// v2 UpsertNode payload = NodeRecord (56 bytes) followed by:
+// v3 UpsertNode payload = NodeRecord (56 bytes) followed by:
 //   u32 shapeKind      0 none, 1 rect/rounded rect, 2 ellipse/arc, 3 star, 4 polygon, 5 line
 //   f32 radii[4]       corner radii TL, TR, BR, BL
 //   u32 pointCount     star / polygon
@@ -13,6 +13,12 @@
 //     u32 join (0 miter,1 bevel,2 round); f32 miter; u32 dashCount, f32 dash[]; u32 paintCount, Paint[]
 //   u32 effectCount, Effect[]: u32 type (0 drop,1 inner,2 layer blur,3 bg blur), u32 argb,
 //                              f32 dx, f32 dy, f32 blurRadius, f32 spread
+//   u32 hasText; if set (TextNode only):
+//     u32 autoSize (0 auto width,1 auto height,2 fixed); u32 alignH (0 left,1 center,2 right,3 justified);
+//     u32 alignV (0 top,1 center,2 bottom); f32 paragraphSpacing; u32 maxLines (0 = unlimited);
+//     u32 runCount; per run: f32 fontSize, f32 lineHeight (0 = auto), f32 letterSpacing,
+//       u32 weight, u32 italic, u32 decoration (bit0 underline, bit1 strikethrough),
+//       u32 familyBytes + UTF-8 family, u32 textBytes + UTF-8 text, u32 fillCount + Paint[]
 // Paint: u32 type (0 solid,1 linear,2 radial), f32 opacity, u32 argb, u32 stopCount,
 //        {f32 pos, u32 argb}[stopCount], and for gradients 6 floats (a b c d tx ty) mapping the
 //        unit gradient space to node-local space. Linear: (0,0.5)->(1,0.5). Radial: center (0.5,0.5), radius 0.5.
@@ -23,7 +29,7 @@
 namespace figtab {
 
 constexpr uint32_t kPatchMagic   = 0x46545031;  // 'FTP1'
-constexpr uint32_t kPatchVersion = 2;
+constexpr uint32_t kPatchVersion = 3;
 
 struct PatchHeader {
     uint32_t magic;

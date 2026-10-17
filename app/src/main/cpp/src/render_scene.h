@@ -8,6 +8,8 @@
 #include "include/core/SkPath.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkTextBlob.h"
 #include "scene_patch.h"
 
 namespace figtab {
@@ -28,6 +30,17 @@ struct EffectSpec {
     float dx = 0, dy = 0, blur = 0, spread = 0;
 };
 
+struct TextPiece {
+    sk_sp<SkTextBlob> blob;
+    float x = 0, y = 0;     // origin of the blob's baseline, node-local
+    int run = 0;            // index into RenderNode::textFills
+};
+
+struct TextDeco {           // underline / strikethrough rectangle
+    float x = 0, y = 0, w = 0, thick = 1;
+    int run = 0;
+};
+
 struct RenderNode {
     uint64_t id = 0;
     uint32_t kind = 0, flags = 0, blend = 0;
@@ -44,6 +57,12 @@ struct RenderNode {
     std::vector<SkPaint> fills;
     StrokeSpec stroke;
     std::vector<EffectSpec> effects;
+    // Text (laid out once at upsert time)
+    bool hasText = false;
+    std::vector<TextPiece> textPieces;
+    std::vector<TextDeco> textDecos;
+    std::vector<std::vector<SkPaint>> textFills;   // per run
+
     float pad = 1.f;                   // how far painting can extend past [0,w]x[0,h] (stroke, shadows, blur)
 };
 
