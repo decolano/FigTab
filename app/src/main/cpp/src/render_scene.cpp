@@ -225,9 +225,9 @@ sk_sp<SkTextBlob> makeBlob(const SkFont& font, const std::string& s, float lette
     width = 0;
     const int count = font.countText(s.data(), s.size(), SkTextEncoding::kUTF8);
     if (count <= 0) return nullptr;
-    std::vector<SkGlyphID> glyphs(size_t(count));
+    std::vector<SkGlyphID> glyphs(static_cast<size_t>(count));
     font.textToGlyphs(s.data(), s.size(), SkTextEncoding::kUTF8, glyphs.data(), count);
-    std::vector<SkScalar> widths(size_t(count));
+    std::vector<SkScalar> widths(static_cast<size_t>(count));
     font.getWidths(glyphs.data(), count, widths.data());
     SkTextBlobBuilder builder;
     const SkTextBlobBuilder::RunBuffer& buf = builder.allocRunPosH(font, count, 0.f);
