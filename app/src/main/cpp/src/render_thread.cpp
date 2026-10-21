@@ -2,11 +2,13 @@
 #include <GLES3/gl3.h>
 #include <android/log.h>
 #include <cmath>
+#include <cstring>
 
 #if FIGTAB_HAS_SKIA
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
 #include "include/core/SkSurfaceProps.h"
 #include "skia_compat.h"
 #endif
@@ -134,6 +136,47 @@ void RenderThread::teardownEgl() {
 
 #if FIGTAB_HAS_SKIA
 
+namespace {
+// Screen-space overlay: selection boxes, handles, snap guides, marquee.
+// Buffer layout: u32 count, then per primitive 28 bytes:
+//   u32 type (0 line, 1 stroked rect, 2 filled rect), f32 a, b, c, d, u32 argb, f32 width
+// line uses (a,b)-(c,d); rects use x=a, y=b, w=c, h=d.
+void drawOverlay(SkCanvas* canvas, const std::vector<uint8_t>& buf) {
+    if (buf.size() < 4) return;
+    uint32_t count = 0;
+    std::memcpy(&count, buf.data(), 4);
+    size_t off = 4;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (off + 28 > buf.size()) break;
+        uint32_t type, color;
+        float a, b, c, d, w;
+        std::memcpy(&type, &buf[off + 0], 4);
+        std::memcpy(&a, &buf[off + 4], 4);
+        std::memcpy(&b, &buf[off + 8], 4);
+        std::memcpy(&c, &buf[off + 12], 4);
+        std::memcpy(&d, &buf[off + 16], 4);
+        std::memcpy(&color, &buf[off + 20], 4);
+        std::memcpy(&w, &buf[off + 24], 4);
+        off += 28;
+        SkPaint p;
+        p.setAntiAlias(true);
+        p.setColor(static_cast<SkColor>(color));
+        if (type == 0) {
+            p.setStyle(SkPaint::kStroke_Style);
+            p.setStrokeWidth(w);
+            p.setStrokeCap(SkPaint::kRound_Cap);
+            canvas->drawLine(a, b, c, d, p);
+        } else if (type == 1) {
+            p.setStyle(SkPaint::kStroke_Style);
+            p.setStrokeWidth(w);
+            canvas->drawRect(SkRect::MakeXYWH(a, b, c, d), p);
+        } else if (type == 2) {
+            canvas->drawRect(SkRect::MakeXYWH(a, b, c, d), p);
+        }
+    }
+}
+}  // namespace
+
 bool RenderThread::ensureSkSurface() {
     if (skSurface_ && skSurface_->width() == width_ && skSurface_->height() == height_) return true;
     GrGLFramebufferInfo fb;
@@ -147,10 +190,10 @@ bool RenderThread::ensureSkSurface() {
 }
 
 void RenderThread::renderFrame() {
-    Viewport vp; uint32_t bg; std::vector<std::vector<uint8_t>> patches;
+    Viewport vp; uint32_t bg; std::vector<std::vector<uint8_t>> patches; std::vector<uint8_t> overlay;
     {
         std::lock_guard<std::mutex> l(mu_);
-        vp = viewport_; bg = background_; patches.swap(patchQueue_);
+        vp = viewport_; bg = background_; patches.swap(patchQueue_); overlay = overlay_;
     }
     for (auto& p : patches)
         if (!scene_.applyPatch(p.data(), p.size())) LOGE("malformed scene patch dropped (%zu bytes)", p.size());
@@ -167,7 +210,8 @@ void RenderThread::renderFrame() {
     if (canvas->getTotalMatrix().invert(&inv)) inv.mapRect(&visible);
 
     scene_.draw(canvas, visible);
-    // TODO(Phase 3): overlay pass in SCREEN space (resetMatrix) so handles/guides stay crisp at any zoom.
+    canvas->resetMatrix();           // overlay is in screen space so handles stay crisp at any zoom
+    drawOverlay(canvas, overlay);
 
     grCtx_->flushAndSubmit();
     eglSwapBuffers(dpy_, surf_);

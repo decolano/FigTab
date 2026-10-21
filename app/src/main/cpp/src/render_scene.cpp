@@ -379,6 +379,7 @@ bool decodeText(Reader& r, RenderNode& n) {
         sk_sp<SkTypeface> tf = findTypeface(family, weight, italic != 0);
         if (!tf || size <= 0) continue;                     // run stays !ok and is skipped
         R.font = SkFont(tf, size);
+        if (italic != 0 && !tf->isItalic()) R.font.setSkewX(-0.25f);   // synthetic italic when the family has none
         R.font.setSubpixel(true);
         R.font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
         R.font.setHinting(SkFontHinting::kNone);
