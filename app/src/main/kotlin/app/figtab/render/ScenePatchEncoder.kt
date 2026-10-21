@@ -46,6 +46,14 @@ object ScenePatchEncoder {
         }
     }
 
+    /** Incremental update: re-upserts only [ids] (no ClearAll). Used while dragging. */
+    fun encodeNodes(canvas: Canvas, ids: Collection<NodeId>, out: PatchBuffer) {
+        val nodes = ids.mapNotNull { canvas[it] }
+        out.reset()
+        out.putInt(MAGIC).putInt(VERSION).putInt(nodes.size).putInt(0)
+        for (n in nodes) op(out, OP_UPSERT) { writeNode(out, n) }
+    }
+
     /** Writes an op header, runs [body], then back-fills the payload size. */
     private inline fun op(out: PatchBuffer, code: Int, body: () -> Unit) {
         out.putInt(code)
