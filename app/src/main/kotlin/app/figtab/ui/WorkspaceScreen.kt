@@ -4,9 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,50 +30,84 @@ import app.figtab.render.CanvasSurfaceView
 import app.figtab.render.NativeCanvas
 import kotlin.math.roundToInt
 
-/** Phase 3 shell: canvas + a compact toolbar (undo/redo, input mode toggles, selection readout). */
+/**
+ * Figma-style workspace: layers on the left, canvas in the middle with a floating tool bar and the
+ * edit menu (undo / redo / input toggles), and the Design inspector on the right.
+ */
 @Composable
 fun WorkspaceScreen(nativeCanvas: NativeCanvas) {
     val viewport = remember { ViewportState() }
-    val controller = remember { DocumentController(DemoScene.create(), viewport) }
+    val controller = remember {
+        DocumentController(DemoScene.create().copy(background = 0xFF1E1E1E.toInt()), viewport)
+    }
     var zoomPercent by remember { mutableIntStateOf(100) }
     var tick by remember { mutableIntStateOf(0) }
     var touchEdit by remember { mutableStateOf(false) }
+    var showPanels by remember { mutableStateOf(true) }
 
     remember(controller) {
         controller.addListener { tick++ }
         0
     }
-    @Suppress("UNUSED_VARIABLE") val observed = tick   // re-read controller state whenever it changes
 
-    Box(Modifier.fillMaxSize()) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                CanvasSurfaceView(ctx, nativeCanvas, viewport, controller).also { view ->
-                    view.onViewportChanged = { zoomPercent = (it.scale * 100f).roundToInt() }
-                    nativeCanvas.setBackground(0xFF2C2C2C.toInt())
-                }
-            },
-            update = { view -> view.fingerEditing = touchEdit },
-        )
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(12.dp)
-                .background(Color(0xCC1E1E1E), RoundedCornerShape(10.dp))
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("FigTab · $zoomPercent%", color = Color.White, modifier = Modifier.padding(horizontal = 10.dp))
-            Chip("Undo", enabled = controller.canUndo) { controller.undo() }
-            Chip("Redo", enabled = controller.canRedo) { controller.redo() }
-            Chip(if (touchEdit) "Touch edit: ON" else "Touch edit: OFF", active = touchEdit) { touchEdit = !touchEdit }
-            Chip(if (controller.multiSelectMode) "Multi: ON" else "Multi: OFF", active = controller.multiSelectMode) {
-                controller.multiSelectMode = !controller.multiSelectMode
-            }
-            Text(controller.selectionSummary(), color = Color(0xFFB3B3B3), modifier = Modifier.padding(horizontal = 10.dp))
+    Row(Modifier.fillMaxSize().background(Ui.PanelBg)) {
+        if (showPanels) LayersPanel(controller, tick, Modifier.width(220.dp).fillMaxHeight())
+
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    CanvasSurfaceView(ctx, nativeCanvas, viewport, controller).also { view ->
+                        view.onViewportChanged = { zoomPercent = (it.scale * 100f).roundToInt() }
+                    }
+                },
+                update = { view -> view.fingerEditing = touchEdit },
+            )
+            EditMenu(
+                controller = controller, version = tick, zoomPercent = zoomPercent,
+                touchEdit = touchEdit, onToggleTouch = { touchEdit = !touchEdit },
+                showPanels = showPanels, onTogglePanels = { showPanels = !showPanels },
+                modifier = Modifier.align(Alignment.TopStart),
+            )
+            ToolBar(
+                controller, tick,
+                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp),
+            )
         }
+
+        if (showPanels) InspectorPanel(controller, tick, zoomPercent, Modifier.width(250.dp).fillMaxHeight())
+    }
+}
+
+/** The original edit menu, kept as-is: undo / redo, input-mode toggles and the selection readout. */
+@Composable
+private fun EditMenu(
+    controller: DocumentController,
+    @Suppress("UNUSED_PARAMETER") version: Int,
+    zoomPercent: Int,
+    touchEdit: Boolean,
+    onToggleTouch: () -> Unit,
+    showPanels: Boolean,
+    onTogglePanels: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .statusBarsPadding()
+            .padding(12.dp)
+            .background(Color(0xCC1E1E1E), RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("FigTab · $zoomPercent%", color = Color.White, modifier = Modifier.padding(horizontal = 10.dp))
+        Chip("Undo", enabled = controller.canUndo) { controller.undo() }
+        Chip("Redo", enabled = controller.canRedo) { controller.redo() }
+        Chip(if (touchEdit) "Touch edit: ON" else "Touch edit: OFF", active = touchEdit, onClick = onToggleTouch)
+        Chip(if (controller.multiSelectMode) "Multi: ON" else "Multi: OFF", active = controller.multiSelectMode) {
+            controller.multiSelectMode = !controller.multiSelectMode
+        }
+        Chip(if (showPanels) "Panels: ON" else "Panels: OFF", active = showPanels, onClick = onTogglePanels)
+        Text(controller.selectionSummary(), color = Color(0xFFB3B3B3), modifier = Modifier.padding(horizontal = 10.dp))
     }
 }
 
