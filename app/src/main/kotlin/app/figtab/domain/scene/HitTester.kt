@@ -12,6 +12,29 @@ object HitTester {
         return null
     }
 
+    /** Deepest frame / section / component under the point: the parent for a newly drawn node. */
+    fun pickContainer(canvas: Canvas, world: Vec2): NodeId? {
+        for (id in canvas.roots.asReversed()) {
+            val r = containerIn(canvas, id, world)
+            if (r != null) return r
+        }
+        return null
+    }
+
+    private fun containerIn(canvas: Canvas, id: NodeId, pParent: Vec2): NodeId? {
+        val n = canvas[id] ?: return null
+        if (!n.visible || n.locked) return null
+        if (n !is ContainerNode || n is GroupNode) return null
+        val inv = n.transform.invert() ?: return null
+        val p = inv.map(pParent)
+        if (!inBox(n, p, 0f)) return null
+        for (c in n.children.asReversed()) {
+            val inner = containerIn(canvas, c, p)
+            if (inner != null) return inner
+        }
+        return n.id
+    }
+
     private fun hitNode(canvas: Canvas, id: NodeId, pParent: Vec2, tol: Float): NodeId? {
         val n = canvas[id] ?: return null
         if (!n.visible || n.locked) return null

@@ -2,10 +2,13 @@ package app.figtab.domain.scene
 
 import app.figtab.domain.viewport.ViewportState
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 enum class Handle { TL, T, TR, R, BR, B, BL, L }
 
@@ -13,8 +16,8 @@ enum class Handle { TL, T, TR, R, BR, B, BL, L }
 data class Changes(val full: Boolean, val ids: Set<NodeId>)
 
 /**
- * Owns the live document, the selection and the pointer-driven edit gestures
- * (select, move, resize, marquee) plus undo/redo. Pure Kotlin: no Android types.
+ * Owns the live document, the selection, the active tool and every edit (pointer gestures plus
+ * inspector commands) with undo/redo. Pure Kotlin: no Android types.
  */
 class DocumentController(initial: Canvas, private val viewport: ViewportState) {
 
@@ -25,6 +28,11 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
     var multiSelectMode: Boolean = false
         set(value) { field = value; notifyListeners() }
 
+    private var toolState: Tool = Tool.MOVE
+    var tool: Tool
+        get() = toolState
+        set(value) { toolState = value; notifyListeners() }
+
     val canUndo: Boolean get() = history.canUndo
     val canRedo: Boolean get() = history.canRedo
 
@@ -34,6 +42,7 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
     private var fullDirty = true
     private var guides: List<SnapEngine.Guide> = emptyList()
     private var gesture: Gesture = Gesture.Idle
+    private var nextId: Long = (initial.nodes.keys.maxOfOrNull { it.raw } ?: 0L) + 1L
 
     private sealed interface Gesture {
         object Idle : Gesture
@@ -54,7 +63,13 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
             val startWorld: Vec2, var current: Vec2, val add: Boolean, val base: Set<NodeId>,
             val scope: List<NodeId>, val startCanvas: Canvas, val startSelection: Set<NodeId>,
         ) : Gesture
+        class Creating(
+            val tool: Tool, val startWorld: Vec2, val startScreen: Vec2, val parentId: NodeId?,
+            val startCanvas: Canvas, val startSelection: Set<NodeId>, var nodeId: NodeId?,
+        ) : Gesture
     }
+
+    private class Geo(val transform: Affine2D, val w: Float, val h: Float)
 
     // ───────── listeners & change tracking ─────────
 
@@ -72,12 +87,18 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
 
     fun pointerDown(sx: Float, sy: Float, addModifier: Boolean) {
         cancelInternal()
-        val add = addModifier || multiSelectMode
         val world = viewport.screenToWorld(sx, sy)
+
+        if (toolState != Tool.MOVE) {
+            val parent = HitTester.pickContainer(canvas, world)
+            gesture = Gesture.Creating(toolState, world, Vec2(sx, sy), parent, canvas, selection, null)
+            return
+        }
+
+        val add = addModifier || multiSelectMode
         val handle = hitHandle(sx, sy)
         val hit = if (handle == null) HitTester.pick(canvas, world, 4f / viewport.scale) else null
-        val startSel = selection
-        gesture = Gesture.Pending(Vec2(sx, sy), world, hit, handle, add, canvas, startSel)
+        gesture = Gesture.Pending(Vec2(sx, sy), world, hit, handle, add, canvas, selection)
 
         // Immediate feedback: pressing an unselected object selects it (top-level frames wait: a drag
         // on one starts a marquee inside it instead).
@@ -91,6 +112,11 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
         val world = viewport.screenToWorld(sx, sy)
         val g = gesture
         if (g is Gesture.Idle) return
+        if (g is Gesture.Creating) {
+            updateCreating(g, world, sx, sy, keepAspect)
+            notifyListeners()
+            return
+        }
         if (g is Gesture.Pending) {
             if (hypot(sx - g.downScreen.x, sy - g.downScreen.y) < DRAG_SLOP_PX) return
             beginDrag(g)
@@ -115,6 +141,11 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
             }
             is Gesture.Moving -> commit(g.startCanvas, g.startSelection)
             is Gesture.Resizing -> commit(g.startCanvas, g.startSelection)
+            is Gesture.Creating -> {
+                if (g.nodeId == null) g.nodeId = beginCreate(g)
+                commit(g.startCanvas, g.startSelection)
+                toolState = Tool.MOVE     // like Figma: one shape per tool pick
+            }
             else -> Unit
         }
         gesture = Gesture.Idle
@@ -134,6 +165,7 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
             is Gesture.Moving -> { canvas = g.startCanvas; selection = g.startSelection; fullDirty = true }
             is Gesture.Resizing -> { canvas = g.startCanvas; selection = g.startSelection; fullDirty = true }
             is Gesture.Marquee -> selection = g.startSelection
+            is Gesture.Creating -> { canvas = g.startCanvas; selection = g.startSelection; fullDirty = true }
             else -> Unit
         }
         gesture = Gesture.Idle
@@ -245,19 +277,35 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
         if (b - t < MIN_SIZE) { if (movesT) t = b - MIN_SIZE else b = t + MIN_SIZE }
 
         val nb = Rect(l, t, r - l, b - t)
+        canvas = rescaleNodes(g.startCanvas, g.originals, g.worlds, g.parents, sb, nb)
+        dirty.addAll(g.originals.keys)
+        guides = SnapEngine.guides(nb, g.targets, xs, ys)
+    }
+
+    /** Maps every node's world box from [sb] into [nb]. Pure translations work for any node; scaling needs axis-aligned ones. */
+    private fun rescaleNodes(
+        base: Canvas, originals: Map<NodeId, SceneNode>, worlds: Map<NodeId, Affine2D>,
+        parents: Map<NodeId, Affine2D>, sb: Rect, nb: Rect,
+    ): Canvas {
         val sx = if (sb.w > 0.0001f) nb.w / sb.w else 1f
         val sy = if (sb.h > 0.0001f) nb.h / sb.h else 1f
-
-        var c = g.startCanvas
-        for ((id, orig) in g.originals) {
-            val w = g.worlds[id] ?: continue
-            val p = g.parents[id] ?: continue
+        val translateOnly = abs(sx - 1f) < 1e-6f && abs(sy - 1f) < 1e-6f
+        var c = base
+        for ((id, orig) in originals) {
+            val w = worlds[id] ?: continue
+            val p = parents[id] ?: continue
+            val t0 = orig.transform
+            if (translateOnly) {
+                val inv = p.invert() ?: continue
+                val d = inv.mapVector(Vec2(nb.x - sb.x, nb.y - sb.y))
+                c = c.withNode(orig.withGeometry(t0.copy(tx = t0.tx + d.x, ty = t0.ty + d.y), orig.width, orig.height))
+                continue
+            }
             if (p.a <= 0f || p.d <= 0f || w.a <= 0f || w.d <= 0f) continue
             val ow = orig.width * w.a
             val oh = orig.height * w.d
             val nx = nb.x + (w.tx - sb.x) * sx
             val ny = nb.y + (w.ty - sb.y) * sy
-            val t0 = orig.transform
             val resized = orig.withGeometry(
                 t0.copy(tx = (nx - p.tx) / p.a, ty = (ny - p.ty) / p.d),
                 (ow * sx) / w.a,
@@ -265,9 +313,7 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
             ).fixedIfText()
             c = c.withNode(resized)
         }
-        canvas = c
-        dirty.addAll(g.originals.keys)
-        guides = SnapEngine.guides(nb, g.targets, xs, ys)
+        return c
     }
 
     private fun updateMarquee(g: Gesture.Marquee, world: Vec2) {
@@ -284,6 +330,72 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
         val x = min(g.startWorld.x, g.current.x)
         val y = min(g.startWorld.y, g.current.y)
         return Rect(x, y, abs(g.current.x - g.startWorld.x), abs(g.current.y - g.startWorld.y))
+    }
+
+    // ───────── drawing new nodes ─────────
+
+    private fun uniqueName(base: String): String {
+        val used = canvas.nodes.values.map { it.name }.toSet()
+        var i = 1
+        while ("$base $i" in used) i++
+        return "$base $i"
+    }
+
+    /** Geometry in the parent's space. [cur] == null means a plain tap: use the tool's default size. */
+    private fun creationGeometry(tool: Tool, start: Vec2, cur: Vec2?, parentWorld: Affine2D, keepAspect: Boolean): Geo? {
+        val inv = parentWorld.invert() ?: return null
+        val p0 = inv.map(start)
+        if (tool == Tool.LINE) {
+            if (cur == null) return Geo(Affine2D(tx = p0.x, ty = p0.y), 100f, 0f)
+            val p1 = inv.map(cur)
+            val dx = p1.x - p0.x
+            val dy = p1.y - p0.y
+            val len = max(hypot(dx, dy), 1f)
+            val ang = atan2(dy, dx)
+            val cs = cos(ang)
+            val sn = sin(ang)
+            return Geo(Affine2D(a = cs, b = sn, c = -sn, d = cs, tx = p0.x, ty = p0.y), len, 0f)
+        }
+        if (cur == null) {
+            val size = if (tool == Tool.TEXT) Vec2(110f, 20f) else Vec2(100f, 100f)
+            return Geo(Affine2D(tx = p0.x, ty = p0.y), size.x, size.y)
+        }
+        val p1 = inv.map(cur)
+        var w = abs(p1.x - p0.x)
+        var h = abs(p1.y - p0.y)
+        if (keepAspect) { val s = max(w, h); w = s; h = s }
+        val x = if (p1.x < p0.x) p0.x - w else p0.x
+        val y = if (p1.y < p0.y) p0.y - h else p0.y
+        val minSide = if (tool == Tool.TEXT) 20f else MIN_SIZE
+        return Geo(Affine2D(tx = x, ty = y), max(w, minSide), max(h, minSide))
+    }
+
+    private fun beginCreate(g: Gesture.Creating): NodeId? {
+        val parentWorld = g.parentId?.let { canvas.worldTransform(it) } ?: Affine2D.Identity
+        val geo = creationGeometry(g.tool, g.startWorld, null, parentWorld, false) ?: return null
+        val id = NodeId(nextId++)
+        val node = NodeFactory.create(g.tool, id, g.parentId, uniqueName(NodeFactory.baseName(g.tool)), geo.transform, geo.w, geo.h)
+        canvas = canvas.addNode(node, g.parentId)
+        selection = setOf(id)
+        fullDirty = true
+        return id
+    }
+
+    private fun updateCreating(g: Gesture.Creating, world: Vec2, sx: Float, sy: Float, keepAspect: Boolean) {
+        if (g.nodeId == null) {
+            if (hypot(sx - g.startScreen.x, sy - g.startScreen.y) < DRAG_SLOP_PX) return
+            g.nodeId = beginCreate(g)
+        }
+        val id = g.nodeId ?: return
+        val n = canvas[id] ?: return
+        val parentWorld = g.parentId?.let { canvas.worldTransform(it) } ?: Affine2D.Identity
+        val geo = creationGeometry(g.tool, g.startWorld, world, parentWorld, keepAspect) ?: return
+        var updated = n.withGeometry(geo.transform, geo.w, geo.h)
+        if (g.tool == Tool.TEXT && updated is TextNode) {
+            updated = updated.copy(autoSize = TextAutoSize.AUTO_HEIGHT).estimated()
+        }
+        canvas = canvas.withNode(updated)
+        dirty.add(id)
     }
 
     // ───────── commands ─────────
@@ -317,6 +429,12 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
         notifyListeners()
     }
 
+    fun selectNode(id: NodeId, add: Boolean) {
+        if (canvas[id] == null) return
+        selection = if (add) { if (id in selection) selection - id else selection + id } else setOf(id)
+        notifyListeners()
+    }
+
     fun deleteSelection() {
         val ids = topLevelSelection()
         if (ids.isEmpty()) return
@@ -342,6 +460,137 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
             dirty.add(id)
         }
         canvas = c
+        notifyListeners()
+    }
+
+    // ───────── inspector commands (each is one undo step) ─────────
+
+    fun selectedNodes(): List<SceneNode> = selection.mapNotNull { canvas[it] }
+
+    /** Applies [f] to every selected node. */
+    fun editSelection(f: (SceneNode) -> SceneNode) {
+        editIds(selection.toList(), f)
+    }
+
+    fun editNode(id: NodeId, f: (SceneNode) -> SceneNode) {
+        editIds(listOf(id), f)
+    }
+
+    private fun editIds(ids: List<NodeId>, f: (SceneNode) -> SceneNode) {
+        var c = canvas
+        val changed = ArrayList<NodeId>()
+        for (id in ids) {
+            val n = c[id] ?: continue
+            val nn = f(n)
+            if (nn != n) { c = c.withNode(nn); changed.add(id) }
+        }
+        if (changed.isEmpty()) return
+        history.push(Snapshot(canvas, selection))
+        canvas = c
+        dirty.addAll(changed)
+        notifyListeners()
+    }
+
+    fun toggleVisible(id: NodeId) {
+        val n = canvas[id] ?: return
+        editNode(id) { it.withCommon(visible = !n.visible) }
+    }
+
+    fun toggleLocked(id: NodeId) {
+        val n = canvas[id] ?: return
+        editNode(id) { it.withCommon(locked = !n.locked) }
+    }
+
+    fun setCornerRadius(r: Float) {
+        val v = max(r, 0f)
+        editSelection { it.withCornerRadii(CornerRadii.uniform(v)) }
+    }
+
+    fun setBackground(argb: Int) {
+        if (canvas.background == argb) return
+        history.push(Snapshot(canvas, selection))
+        canvas = canvas.copy(background = argb)
+        notifyListeners()
+    }
+
+    fun selectionBounds(): Rect? = unionBounds(topLevelSelection())
+
+    /** Rotation of a single selected node in degrees, or null. */
+    fun rotationOfSelection(): Float? {
+        val ids = topLevelSelection()
+        if (ids.size != 1) return null
+        val n = canvas[ids[0]] ?: return null
+        if (n is GroupNode) return null
+        val t = n.transform
+        return Math.toDegrees(atan2(t.b.toDouble(), t.a.toDouble())).toFloat()
+    }
+
+    fun cornerRadiusOfSelection(): Float? =
+        selectedNodes().firstNotNullOfOrNull { it.cornerRadiiOrNull() }?.tl
+
+    /** Sets any of X / Y / W / H of the selection's bounding box (null = unchanged). */
+    fun setSelectionBounds(x: Float?, y: Float?, w: Float?, h: Float?) {
+        val ids = topLevelSelection()
+        if (ids.isEmpty()) return
+        val sb = unionBounds(ids) ?: return
+        var nb = Rect(x ?: sb.x, y ?: sb.y, max(w ?: sb.w, MIN_SIZE), max(h ?: sb.h, MIN_SIZE))
+        val sizeChanged = abs(nb.w - sb.w) > 0.001f || abs(nb.h - sb.h) > 0.001f
+        if (sizeChanged && !canResize(ids)) nb = Rect(nb.x, nb.y, sb.w, sb.h)
+        if (abs(nb.x - sb.x) < 0.001f && abs(nb.y - sb.y) < 0.001f && !sizeChanged) return
+        val originals = ids.mapNotNull { id -> canvas[id]?.let { id to it } }.toMap()
+        val worlds = HashMap<NodeId, Affine2D>()
+        val parents = HashMap<NodeId, Affine2D>()
+        for ((id, n) in originals) {
+            worlds[id] = canvas.worldTransform(id)
+            parents[id] = parentWorld(canvas, n)
+        }
+        val result = rescaleNodes(canvas, originals, worlds, parents, sb, nb)
+        if (result === canvas) return
+        history.push(Snapshot(canvas, selection))
+        canvas = result
+        dirty.addAll(ids)
+        notifyListeners()
+    }
+
+    /** Rotates a single selected node about its center. */
+    fun setRotation(deg: Float) {
+        val ids = topLevelSelection()
+        if (ids.size != 1) return
+        val n = canvas[ids[0]] ?: return
+        if (n is GroupNode) return
+        val t = n.transform
+        val rad = Math.toRadians(deg.toDouble())
+        val cs = cos(rad).toFloat()
+        val sn = sin(rad).toFloat()
+        val hw = n.width / 2f
+        val hh = n.height / 2f
+        val center = t.map(Vec2(hw, hh))
+        val nt = Affine2D(a = cs, b = sn, c = -sn, d = cs, tx = center.x - (cs * hw - sn * hh), ty = center.y - (sn * hw + cs * hh))
+        editNode(n.id) { it.withGeometry(nt, it.width, it.height) }
+    }
+
+    /** Moves the selection to the front (top) or back of its siblings. */
+    fun arrange(front: Boolean) {
+        val ids = topLevelSelection()
+        if (ids.isEmpty()) return
+        var c = canvas
+        for (id in ids) {
+            val n = c[id] ?: continue
+            val pid = n.parent
+            if (pid == null) {
+                val without = c.roots.remove(id)
+                c = c.copy(roots = if (front) without.add(id) else without.add(0, id))
+            } else {
+                val p = c[pid] as? ContainerNode ?: continue
+                val without = p.children.remove(id)
+                val list = if (front) without.add(id) else without.add(0, id)
+                c = c.withNode(p.withChildren(list))
+            }
+        }
+        if (c === canvas) return
+        history.push(Snapshot(canvas, selection))
+        canvas = c
+        fullDirty = true
         notifyListeners()
     }
 
