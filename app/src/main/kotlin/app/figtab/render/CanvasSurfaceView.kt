@@ -11,6 +11,7 @@ import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import app.figtab.domain.scene.DocumentController
+import app.figtab.domain.scene.Tool
 import app.figtab.domain.viewport.ViewportState
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.hypot
@@ -87,6 +88,7 @@ class CanvasSurfaceView(
             ScenePatchEncoder.encodeNodes(controller.canvas, ch.ids, patchBuffer)
             nativeCanvas.applyPatch(patchBuffer.buffer, patchBuffer.length)
         }
+        nativeCanvas.setBackground(controller.canvas.background)
         pushOverlay()
         invalidateCanvas()
     }
@@ -221,9 +223,19 @@ class CanvasSurfaceView(
         val ctrl = event.isCtrlPressed || event.isMetaPressed
         val shift = event.isShiftPressed
         val step = if (shift) 10f else 1f
+        val toolKey: Tool? = if (ctrl) null else when (keyCode) {
+            KeyEvent.KEYCODE_V -> Tool.MOVE
+            KeyEvent.KEYCODE_F -> Tool.FRAME
+            KeyEvent.KEYCODE_R -> Tool.RECT
+            KeyEvent.KEYCODE_O -> Tool.ELLIPSE
+            KeyEvent.KEYCODE_L -> Tool.LINE
+            KeyEvent.KEYCODE_T -> Tool.TEXT
+            else -> null
+        }
+        if (toolKey != null) { controller.tool = toolKey; return true }
         return when (keyCode) {
             KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL -> { controller.deleteSelection(); true }
-            KeyEvent.KEYCODE_ESCAPE -> { controller.clearSelection(); true }
+            KeyEvent.KEYCODE_ESCAPE -> { controller.tool = Tool.MOVE; controller.clearSelection(); true }
             KeyEvent.KEYCODE_DPAD_LEFT -> { controller.nudge(-step, 0f); true }
             KeyEvent.KEYCODE_DPAD_RIGHT -> { controller.nudge(step, 0f); true }
             KeyEvent.KEYCODE_DPAD_UP -> { controller.nudge(0f, -step); true }
