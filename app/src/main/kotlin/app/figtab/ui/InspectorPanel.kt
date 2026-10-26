@@ -94,6 +94,8 @@ private fun PageSection(controller: DocumentController) {
     }
     PresetSwatches { c -> controller.setBackground(c) }
     PanelDivider()
+    FramePresets(controller)
+    PanelDivider()
     Text(
         "Pick a tool in the bar below and drag on the canvas to draw. Tap a layer to edit it here.",
         color = Ui.TextLo, fontSize = 11.sp, modifier = Modifier.padding(12.dp),
@@ -140,6 +142,9 @@ private fun NodeSections(controller: DocumentController, nodes: List<SceneNode>)
             else Spacer(Modifier.weight(1f))
         }
     }
+
+    // ── Auto layout, resizing rules, constraints ──
+    LayoutSections(controller, first)
 
     // ── Appearance ──
     PanelDivider()
