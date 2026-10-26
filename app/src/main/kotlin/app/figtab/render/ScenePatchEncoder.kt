@@ -34,9 +34,10 @@ object ScenePatchEncoder {
 
         for (n in canvas.nodes.values) {
             if (n !is ContainerNode) continue
+            val kids: List<NodeId> = if (n.autoLayoutOrNull()?.reverseZ == true) n.children.asReversed() else n.children
             op(out, OP_SET_CHILDREN) {
-                out.putLong(n.id.raw).putInt(n.children.size)
-                for (k in n.children) out.putLong(k.raw)
+                out.putLong(n.id.raw).putInt(kids.size)
+                for (k in kids) out.putLong(k.raw)
             }
         }
 

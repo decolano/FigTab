@@ -256,6 +256,7 @@ class CanvasSurfaceView(
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         nativeCanvas.surfaceChanged(width, height, resources.displayMetrics.density)
+        controller.setViewSize(width.toFloat(), height.toFloat())
         pushViewport()
     }
 
