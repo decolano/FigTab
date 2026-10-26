@@ -50,7 +50,8 @@ object HitTester {
         if (n is ContainerNode) {
             val clips = (n is FrameNode && n.clipsContent) || (n is ComponentNode && n.clipsContent)
             if (!clips || inBox(n, p, tol)) {
-                for (c in n.children.asReversed()) {
+                val order: List<NodeId> = if (n.autoLayoutOrNull()?.reverseZ == true) n.children else n.children.asReversed()
+                for (c in order) {
                     val h = hitNode(canvas, c, p, tol)
                     if (h != null) return h
                 }

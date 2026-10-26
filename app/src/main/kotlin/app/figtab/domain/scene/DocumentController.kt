@@ -71,10 +71,51 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
 
     private class Geo(val transform: Affine2D, val w: Float, val h: Float)
 
+    private var viewWidth = 0f
+    private var viewHeight = 0f
+
+    /** Called by the canvas view so presets can be dropped at the center of the visible area. */
+    fun setViewSize(w: Float, h: Float) {
+        viewWidth = w
+        viewHeight = h
+    }
+
+    /** Adds a top-level frame (a device / presentation preset) at the center of the view. */
+    fun createFrame(name: String, w: Float, h: Float) {
+        val center = viewport.screenToWorld(viewWidth / 2f, viewHeight / 2f)
+        val used = canvas.nodes.values.map { it.name }.toSet()
+        var finalName = name
+        var i = 2
+        while (finalName in used) { finalName = "$name $i"; i++ }
+        val id = NodeId(nextId++)
+        val node = FrameNode(
+            id = id, name = finalName, parent = null,
+            transform = Affine2D(tx = center.x - w / 2f, ty = center.y - h / 2f), width = w, height = h,
+            cornerRadii = CornerRadii.Zero, fills = listOf(Paint.Solid(0xFFFFFFFF.toInt())),
+        )
+        history.push(Snapshot(canvas, selection))
+        canvas = canvas.addNode(node, null)
+        selection = setOf(id)
+        fullDirty = true
+        notifyListeners()
+    }
+
     // ───────── listeners & change tracking ─────────
 
     fun addListener(l: () -> Unit) { listeners.add(l) }
-    private fun notifyListeners() { for (l in listeners.toList()) l() }
+    private fun notifyListeners() {
+        relayout()
+        for (l in listeners.toList()) l()
+    }
+
+    /** Auto Layout runs after every edit so the document is always in a laid-out state. */
+    private fun relayout() {
+        val r = LayoutEngine.apply(canvas)
+        if (r.changed.isNotEmpty()) {
+            canvas = r.canvas
+            dirty.addAll(r.changed)
+        }
+    }
 
     fun takeChanges(): Changes {
         val c = Changes(fullDirty, LinkedHashSet(dirty))
@@ -306,12 +347,27 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
             val oh = orig.height * w.d
             val nx = nb.x + (w.tx - sb.x) * sx
             val ny = nb.y + (w.ty - sb.y) * sy
-            val resized = orig.withGeometry(
+            var resized = orig.withGeometry(
                 t0.copy(tx = (nx - p.tx) / p.a, ty = (ny - p.ty) / p.d),
                 (ow * sx) / w.a,
                 (oh * sy) / w.d,
             ).fixedIfText()
+            // a manual resize turns Hug / Fill into Fixed on the axes that changed
+            val wChanged = abs(resized.width - orig.width) > 0.001f
+            val hChanged = abs(resized.height - orig.height) > 0.001f
+            if (wChanged || hChanged) {
+                val lc = resized.layoutChild
+                resized = resized.withLayoutChild(
+                    lc.copy(
+                        widthSizing = if (wChanged) AxisSizing.Fixed(resized.width) else lc.widthSizing,
+                        heightSizing = if (hChanged) AxisSizing.Fixed(resized.height) else lc.heightSizing,
+                    ),
+                )
+            }
             c = c.withNode(resized)
+            if (orig is FrameNode || orig is ComponentNode) {
+                c = LayoutEngine.resizeChildren(c, id, orig.width, orig.height)   // children follow their constraints
+            }
         }
         return c
     }
@@ -482,7 +538,11 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
         for (id in ids) {
             val n = c[id] ?: continue
             val nn = f(n)
-            if (nn != n) { c = c.withNode(nn); changed.add(id) }
+            if (nn != n) {
+                c = c.withNode(nn)
+                changed.add(id)
+                if (n.autoLayoutOrNull()?.reverseZ != nn.autoLayoutOrNull()?.reverseZ) fullDirty = true
+            }
         }
         if (changed.isEmpty()) return
         history.push(Snapshot(canvas, selection))

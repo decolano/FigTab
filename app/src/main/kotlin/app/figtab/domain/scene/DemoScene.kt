@@ -188,14 +188,51 @@ object DemoScene {
                 " and small" to ts(14f, 400, 0xFF6B7280),
             ), TextAutoSize.AUTO_WIDTH)
 
+        // ───── Auto layout demos ─────
+        val alA = NodeId(22); val a1 = NodeId(23); val a2 = NodeId(24); val a3 = NodeId(25)
+        val alB = NodeId(26); val b1 = NodeId(27); val b2 = NodeId(28); val b3 = NodeId(29)
+
+        val autoA = FrameNode(
+            id = alA, parent = null, name = "Auto layout · hug",
+            transform = Affine2D(tx = 80f, ty = 680f), width = 100f, height = 100f,
+            cornerRadii = CornerRadii.uniform(16f), fills = listOf(solid(0xFFFFFFFF)),
+            autoLayout = AutoLayout(
+                mode = LayoutMode.HORIZONTAL, gap = 12f, padding = Padding(16f, 16f, 16f, 16f),
+                counterAlign = CounterAlign.CENTER,
+            ),
+            layoutChild = LayoutChild(widthSizing = AxisSizing.HugContent, heightSizing = AxisSizing.HugContent),
+            children = persistentListOf(a1, a2, a3),
+        )
+        fun box(id: NodeId, parent: NodeId, w: Float, h: Float, color: Long, lc: LayoutChild = LayoutChild()) = ShapeNode(
+            id = id, parent = parent, name = "Box", kind = ShapeKind.RECTANGLE, width = w, height = h,
+            cornerRadii = CornerRadii.uniform(8f), fills = listOf(solid(color)), layoutChild = lc,
+        )
+        val boxA1 = box(a1, alA, 60f, 60f, 0xFF6366F1)
+        val boxA2 = box(a2, alA, 80f, 40f, 0xFFEC4899)
+        val boxA3 = box(a3, alA, 50f, 90f, 0xFFF59E0B)
+
+        val autoB = FrameNode(
+            id = alB, parent = null, name = "Auto layout · fill",
+            transform = Affine2D(tx = 500f, ty = 680f), width = 240f, height = 100f,
+            cornerRadii = CornerRadii.uniform(16f), fills = listOf(solid(0xFFFFFFFF)),
+            autoLayout = AutoLayout(mode = LayoutMode.VERTICAL, gap = 8f, padding = Padding(12f, 12f, 12f, 12f)),
+            layoutChild = LayoutChild(widthSizing = AxisSizing.Fixed(240f), heightSizing = AxisSizing.HugContent),
+            children = persistentListOf(b1, b2, b3),
+        )
+        val fillW = AxisSizing.FillContainer(1f)
+        val boxB1 = box(b1, alB, 10f, 40f, 0xFF10B981, LayoutChild(widthSizing = fillW, heightSizing = AxisSizing.Fixed(40f)))
+        val boxB2 = box(b2, alB, 10f, 24f, 0xFF3B82F6, LayoutChild(widthSizing = fillW, heightSizing = AxisSizing.Fixed(24f)))
+        val boxB3 = box(b3, alB, 10f, 56f, 0xFF8B5CF6, LayoutChild(widthSizing = fillW, heightSizing = AxisSizing.Fixed(56f)))
+
         val all: List<SceneNode> = listOf(
             frame, grad, sunNode, starNode, hexNode, lineNode, insetNode, donutNode,
             multiplyBase, multiplyTop, blurNode, clippedFrame,
             textFrame, centerBg, title, para, center, spaced, deco, right, mixed,
+            autoA, boxA1, boxA2, boxA3, autoB, boxB1, boxB2, boxB3,
         )
         return Canvas(
             nodes = all.associateBy { it.id }.toPersistentMap(),
-            roots = persistentListOf(frameId, textFrameId),
+            roots = persistentListOf(frameId, textFrameId, alA, alB),
         )
     }
 }
