@@ -103,6 +103,7 @@ class DocumentController(initial: Canvas, private val viewport: ViewportState) {
     // ───────── listeners & change tracking ─────────
 
     fun addListener(l: () -> Unit) { listeners.add(l) }
+    fun removeListener(l: () -> Unit) { listeners.remove(l) }
     private fun notifyListeners() {
         relayout()
         for (l in listeners.toList()) l()
