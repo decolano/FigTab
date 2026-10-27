@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.figtab.domain.scene.DemoScene
@@ -31,8 +32,8 @@ import app.figtab.render.NativeCanvas
 import kotlin.math.roundToInt
 
 /**
- * Figma-style workspace: layers on the left, canvas in the middle with a floating tool bar and the
- * edit menu (undo / redo / input toggles), and the Design inspector on the right.
+ * Figma-style workspace: layers on the left, canvas in the middle (tool bar down its left edge,
+ * edit menu at the bottom right), and the Design inspector on the right.
  */
 @Composable
 fun WorkspaceScreen(nativeCanvas: NativeCanvas) {
@@ -41,17 +42,11 @@ fun WorkspaceScreen(nativeCanvas: NativeCanvas) {
         DocumentController(DemoScene.create().copy(background = 0xFF1E1E1E.toInt()), viewport)
     }
     var zoomPercent by remember { mutableIntStateOf(100) }
-    var tick by remember { mutableIntStateOf(0) }
     var touchEdit by remember { mutableStateOf(false) }
     var showPanels by remember { mutableStateOf(true) }
 
-    remember(controller) {
-        controller.addListener { tick++ }
-        0
-    }
-
     Row(Modifier.fillMaxSize().background(Ui.PanelBg)) {
-        if (showPanels) LayersPanel(controller, tick, Modifier.width(220.dp).fillMaxHeight())
+        if (showPanels) LayersPanel(controller, 0, Modifier.width(220.dp).fillMaxHeight())
 
         Box(Modifier.weight(1f).fillMaxHeight()) {
             AndroidView(
@@ -63,27 +58,26 @@ fun WorkspaceScreen(nativeCanvas: NativeCanvas) {
                 },
                 update = { view -> view.fingerEditing = touchEdit },
             )
+            ToolBar(
+                controller, 0,
+                Modifier.align(Alignment.CenterStart).statusBarsPadding().navigationBarsPadding().padding(start = 12.dp, top = 8.dp, bottom = 8.dp),
+            )
             EditMenu(
-                controller = controller, version = tick, zoomPercent = zoomPercent,
+                controller = controller, zoomPercent = zoomPercent,
                 touchEdit = touchEdit, onToggleTouch = { touchEdit = !touchEdit },
                 showPanels = showPanels, onTogglePanels = { showPanels = !showPanels },
-                modifier = Modifier.align(Alignment.TopStart),
-            )
-            ToolBar(
-                controller, tick,
-                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp),
+                modifier = Modifier.align(Alignment.BottomEnd),
             )
         }
 
-        if (showPanels) InspectorPanel(controller, tick, zoomPercent, Modifier.width(250.dp).fillMaxHeight())
+        if (showPanels) InspectorPanel(controller, 0, zoomPercent, Modifier.width(250.dp).fillMaxHeight())
     }
 }
 
-/** The original edit menu, kept as-is: undo / redo, input-mode toggles and the selection readout. */
+/** Undo / redo, input-mode toggles, panel toggle and the selection readout. */
 @Composable
 private fun EditMenu(
     controller: DocumentController,
-    @Suppress("UNUSED_PARAMETER") version: Int,
     zoomPercent: Int,
     touchEdit: Boolean,
     onToggleTouch: () -> Unit,
@@ -91,15 +85,16 @@ private fun EditMenu(
     onTogglePanels: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    @Suppress("UNUSED_VARIABLE") val rev = rememberRevision(controller).value
     Row(
         modifier
-            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(12.dp)
             .background(Color(0xCC1E1E1E), RoundedCornerShape(10.dp))
             .padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("FigTab · $zoomPercent%", color = Color.White, modifier = Modifier.padding(horizontal = 10.dp))
+        Text("FigTab · $zoomPercent%", color = Color.White, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp))
         Chip("Undo", enabled = controller.canUndo) { controller.undo() }
         Chip("Redo", enabled = controller.canRedo) { controller.redo() }
         Chip(if (touchEdit) "Touch edit: ON" else "Touch edit: OFF", active = touchEdit, onClick = onToggleTouch)
@@ -107,7 +102,10 @@ private fun EditMenu(
             controller.multiSelectMode = !controller.multiSelectMode
         }
         Chip(if (showPanels) "Panels: ON" else "Panels: OFF", active = showPanels, onClick = onTogglePanels)
-        Text(controller.selectionSummary(), color = Color(0xFFB3B3B3), modifier = Modifier.padding(horizontal = 10.dp))
+        Text(
+            controller.selectionSummary(), color = Color(0xFFB3B3B3), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp),
+        )
     }
 }
 
@@ -121,6 +119,7 @@ private fun Chip(label: String, active: Boolean = false, enabled: Boolean = true
     Text(
         text = label,
         color = color,
+        maxLines = 1,
         modifier = Modifier
             .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 10.dp, vertical = 8.dp),

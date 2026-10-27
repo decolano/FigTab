@@ -58,6 +58,7 @@ fun InspectorPanel(
     zoomPercent: Int,
     modifier: Modifier = Modifier,
 ) {
+    @Suppress("UNUSED_VARIABLE") val rev = rememberRevision(controller).value
     val nodes = controller.selectedNodes()
     Column(
         modifier.background(Ui.PanelBg).statusBarsPadding().navigationBarsPadding()
@@ -83,6 +84,7 @@ fun InspectorPanel(
 
 @Composable
 private fun PageSection(controller: DocumentController) {
+    @Suppress("UNUSED_VARIABLE") val rev = rememberRevision(controller).value
     SectionHeader("Page")
     val bg = controller.canvas.background
     Row(
@@ -104,6 +106,7 @@ private fun PageSection(controller: DocumentController) {
 
 @Composable
 private fun NodeSections(controller: DocumentController, nodes: List<SceneNode>) {
+    @Suppress("UNUSED_VARIABLE") val rev = rememberRevision(controller).value
     val first = nodes.first()
 
     // ── Layer name ──

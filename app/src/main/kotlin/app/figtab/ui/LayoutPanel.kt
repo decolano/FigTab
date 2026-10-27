@@ -65,6 +65,7 @@ fun FramePresets(controller: DocumentController) {
 /** Auto layout, resizing rules and constraints for the selection. */
 @Composable
 fun LayoutSections(controller: DocumentController, first: SceneNode) {
+    @Suppress("UNUSED_VARIABLE") val rev = rememberRevision(controller).value
     val parent = first.parent?.let { controller.canvas[it] }
     val parentAuto = (parent?.autoLayoutOrNull()?.mode ?: LayoutMode.NONE) != LayoutMode.NONE
     val al = first.autoLayoutOrNull()

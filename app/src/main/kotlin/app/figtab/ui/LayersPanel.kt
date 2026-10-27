@@ -74,6 +74,7 @@ private fun glyphOf(n: SceneNode): String = when (n) {
 /** Left panel: file name, pages and the layer tree (top-most layer first). */
 @Composable
 fun LayersPanel(controller: DocumentController, @Suppress("UNUSED_PARAMETER") version: Int, modifier: Modifier = Modifier) {
+    @Suppress("UNUSED_VARIABLE") val rev = rememberRevision(controller).value
     var collapsed by remember { mutableStateOf(setOf<NodeId>()) }
     val rows = flatten(controller.canvas, collapsed)
     val selected = controller.selection
